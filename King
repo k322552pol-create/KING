@@ -1,0 +1,128 @@
+-- // ตั้งค่าค่าเริ่มต้น //
+local Settings = {
+    -- ตรวจจับฟ้าผ่า
+    CheckLightning = true,
+    LightningWarningTime = 10, -- เวลาเตือนก่อนฟ้าผ่ามา (วินาที)
+    
+    -- การซื้อเมล็ด
+    AutoBuySeeds = true,
+    SeedType = "ผลไม้ทั่วไป", -- ชนิดเมล็ดที่ต้องการซื้อ เปลี่ยนตามชื่อในเกม
+    SeedAmount = 20, -- จำนวนเมล็ดที่ซื้อต่อครั้ง
+    MinSeedCount = 5, -- ถ้ามีเมล็ดน้อยกว่านี้จะซื้อเพิ่ม
+    
+    -- การเก็บเกี่ยว
+    AutoCollectFruits = true,
+    CollectWholeTree = true, -- เก็บทั้งต้นโดยไม่ข้ามกิ่ง
+    CollectSeedsFirst = true, -- เก็บเมล็ดก่อนเก็บผล
+}
+
+-- // ตัวแปรระบบ //
+local Players = game:GetService("Players")
+local Workspace = game:GetService("Workspace")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local LocalPlayer = Players.LocalPlayer
+local PlayerGui = LocalPlayer.PlayerGui
+
+-- 🔔 ฟังก์ชันแจ้งเตือน
+local function Notify(text, type)
+    print("[เก็บเกี่ยวอัตโนมัติ] " .. text)
+    -- ถ้ามีระบบแจ้งเตือนในเกมสามารถเพิ่มตรงนี้
+    if PlayerGui:FindFirstChild("Notifications") then
+        PlayerGui.Notifications:CreateNotification(text, type)
+    end
+end
+
+-- ⚡ ตรวจจับฟ้าผ่าและเก็บเมล็ดล่วงหน้า
+local function LightningSystem()
+    while Settings.CheckLightning do
+        -- จำลองการตรวจจับเหตุการณ์ฟ้าผ่า (ปรับตามระบบจริงของเกม)
+        local LightningEvent = Workspace:FindFirstChild("LightningWarning")
+        if LightningEvent and LightningEvent.Value then
+            Notify("⚠️ พบสัญญาณฟ้าผ่า! เตรียมเก็บเมล็ดทันที", "Warning")
+            -- เรียกเก็บเมล็ดทุกต้น
+            CollectAllSeeds()
+            wait(Settings.LightningWarningTime)
+        end
+        wait(1)
+    end
+end
+
+-- 🛒 ฟังก์ชันซื้อเมล็ดอัตโนมัติ
+local function BuySeeds()
+    if not Settings.AutoBuySeeds then return end
+    
+    local CurrentSeeds = #LocalPlayer.Backpack:GetChildren() -- นับจำนวนเมล็ดในกระเป๋า
+    if CurrentSeeds < Settings.MinSeedCount then
+        Notify("🛒 มีเมล็ดไม่พบ กำลังซื้อ " .. Settings.SeedAmount .. " ชิ้น", "Info")
+        -- ปรับเส้นทาง Remote ตามเกมจริง
+        local BuyRemote = ReplicatedStorage:FindFirstChild("ShopRemote")
+        if BuyRemote then
+            BuyRemote:InvokeServer("BuySeed", Settings.SeedType, Settings.SeedAmount)
+            wait(1)
+            Notify("✅ ซื้อเมล็ดสำเร็จ", "Success")
+        else
+            Notify("❌ ไม่พบระบบร้านค้า", "Error")
+        end
+    end
+end
+
+-- 🌱 เก็บเมล็ดจากทุกต้น
+function CollectAllSeeds()
+    Notify("🌱 กำลังเก็บเมล็ดทั้งหมด...", "Info")
+    for _, Tree in pairs(Workspace:GetChildren()) do
+        if Tree.Name:find("ต้น") and Tree:FindFirstChild("เมล็ด") then
+            -- ปรับวิธีเก็บตามเกมจริง
+            local CollectEvent = Tree:FindFirstChild("CollectSeed") or ReplicatedStorage:FindFirstChild("CollectRemote")
+            if CollectEvent then
+                CollectEvent:InvokeServer(Tree)
+                wait(0.2)
+            end
+        end
+    end
+    Notify("✅ เก็บเมล็ดครบถ้วน", "Success")
+end
+
+-- 🍎 เก็บผลไม้ทั้งต้นทุกต้น
+local function CollectAllFruits()
+    if not Settings.AutoCollectFruits then return end
+    
+    while true do
+        BuySeeds() -- เช็คเมล็ดก่อน
+        Notify("🍎 กำลังเก็บผลไม้ทั้งต้น...", "Info")
+        
+        for _, Tree in pairs(Workspace:GetChildren()) do
+            if Tree.Name:find("ต้น") and Tree:FindFirstChild("ผลไม้") then
+                -- เก็บเมล็ดก่อนถ้าเปิดใช้
+                if Settings.CollectSeedsFirst then
+                    if Tree:FindFirstChild("เมล็ด") then
+                        local GetSeed = Tree:FindFirstChild("Collect") or ReplicatedStorage.CollectRemote
+                        if GetSeed then GetSeed:InvokeServer(Tree, "เมล็ด") end
+                    end
+                end
+                
+                -- เก็บทั้งต้น
+                if Settings.CollectWholeTree then
+                    local CollectAll = Tree:FindFirstChild("เก็บทั้งต้น") or ReplicatedStorage.CollectRemote
+                    if CollectAll then
+                        CollectAll:InvokeServer(Tree, "ทั้งต้น")
+                        wait(0.3)
+                    end
+                else
+                    -- เก็บทีละผล (ถ้าไม่ใช่ทั้งต้น)
+                    for _, Fruit in pairs(Tree.ผลไม้:GetChildren()) do
+                        ReplicatedStorage.CollectRemote:InvokeServer(Fruit)
+                        wait(0.1)
+                    end
+                end
+            end
+        end
+        
+        Notify("✅ เก็บผลไม้เสร็จสิ้น รอรอบถัดไป...", "Success")
+        wait(5) -- เวลาระหว่างรอบเก็บเกี่ยว ปรับได้ตามความเหมาะสม
+    end
+end
+
+-- 🚀 เริ่มทำงานทุกระบบ
+coroutine.wrap(LightningSystem)()
+coroutine.wrap(CollectAllFruits)()
+Notify("🚀 สคริปต์เริ่มทำงานแล้ว: เก็บเมล็ดก่อนฟ้าผ่า + ซื้อเมล็ดเอง + เก็บผลทั้งต้น", "Success")
